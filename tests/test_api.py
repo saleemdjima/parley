@@ -12,10 +12,9 @@ def test_health():
 
 
 def test_chat_ok(monkeypatch):
-    # ask is imported into routes.chat; patch it there so no LLM/engine runs.
-    monkeypatch.setattr(
-        "parley.api.routes.chat.ask",
-        lambda question: {
+    # aask is imported into routes.chat; patch with an async stub so no LLM runs.
+    async def fake_aask(question: str) -> dict:
+        return {
             "route": "sql",
             "answer": "42",
             "sql": "SELECT COUNT(*) FROM t",
@@ -28,8 +27,9 @@ def test_chat_ok(monkeypatch):
                 "cost_usd": 0.0,
                 "latency_s": 0.1,
             },
-        },
-    )
+        }
+
+    monkeypatch.setattr("parley.api.routes.chat.aask", fake_aask)
     resp = client.post("/chat", json={"message": "how many trips?"})
     assert resp.status_code == 200
     body = resp.json()

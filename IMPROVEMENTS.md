@@ -30,6 +30,14 @@ Deferred work, roughly in priority order. Nothing here blocks the current demo.
   tracking is wired).
 - **Slack connector**.
 
+## Security
+
+- **Protect `POST /documents`.** It's a write endpoint that mutates the shared Chroma
+  index -- unauthenticated, anyone reachable can poison the RAG knowledge base or run
+  up embedding cost. Add an API-key / auth dependency before any real deployment.
+  (Type allowlist + 10 MB cap are in place, but that's not auth.)
+
 ## Tests to add
 
 - `test_engines.py` (engine seam), `test_graph_routing.py`, `test_graph_integration.py`.
+- `test_docs.py` for `/documents` (415/413/empty + a mocked-ingest success).
