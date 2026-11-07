@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # Embeddings / RAG
     embeddings_provider: str = "google"
-    embeddings_model_google: str = "models/text-embedding-004"
+    embeddings_model_google: str = "models/gemini-embedding-001"
     embeddings_model_hf: str = "sentence-transformers/all-MiniLM-L6-v2"
     docs_dir: str = "data/docs"
     chroma_dir: str = "data/chroma"
