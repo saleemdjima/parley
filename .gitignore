@@ -231,3 +231,7 @@ deploy/terraform/terraform.tfvars
 *.tfstate
 *.tfstate.*
 .verify_venv/
+
+
+# Generate scripts
+scripts/
