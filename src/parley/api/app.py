@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from parley.api.routes.chat import router as chat_router
+from parley.api.routes.docs import router as docs_router
 from parley.config import settings, setup_logging
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ def create_app() -> FastAPI:
     async def request_context(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        # Per-request id + timing for traceable logs (observability baseline).
+        
         request_id = uuid.uuid4().hex[:8]
         start = time.perf_counter()
         response = await call_next(request)
@@ -45,7 +46,7 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(chat_router)
-    # openai + realtime routers register here once reproduced.
+    app.include_router(docs_router)
     return app
 
 
