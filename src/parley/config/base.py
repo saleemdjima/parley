@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     docs_dir: str = "data/docs"
     chroma_dir: str = "data/chroma"
     chroma_collection: str = "tlc_docs"
+    # Vector-store seam: "local" uses a persist_directory (dev / ephemeral demo);
+    # "server" connects to a Chroma HTTP server (stateless app, external state).
+    chroma_mode: str = "local"
+    chroma_host: str = "localhost"
+    chroma_port: int = 8000
     chunk_size: int = 1000
     chunk_overlap: int = 150
     retrieval_k: int = 4
@@ -40,8 +45,9 @@ class Settings(BaseSettings):
     slack_bot_token: str = ""
     slack_app_token: str = ""
 
-    # API 
+    # API
     cors_allow_origins: str = "*"
+    api_key: str = ""  # guards write endpoints (e.g. POST /documents); empty = locked
 
 
 settings = Settings()
