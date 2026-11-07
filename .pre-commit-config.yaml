@@ -1,0 +1,20 @@
+exclude: |
+  (?x)^(
+      .mypy_cache/
+      | .pytest_cache/
+      | .venv/
+      | __pycache__/
+  )$
+
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # ruff version
+    rev: v0.8.2
+    hooks:
+        # run linter
+      - id: ruff
+        args: [ --fix ]
+        # run formatter
+      - id: ruff-format
+    files: \.py$ 
