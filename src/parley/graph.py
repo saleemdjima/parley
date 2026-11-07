@@ -7,6 +7,7 @@ from langgraph.graph.state import CompiledStateGraph
 from parley import llm
 from parley.domains.taxi import TAXI_METRICS
 from parley.engines import get_engine
+from parley.metrics import QueryMetrics, track
 from parley.sql.builder import build_query
 from parley.sql.intent import extract_intent
 from parley.sql.router import Route, route
@@ -119,13 +120,27 @@ agent_graph = build_graph()
 SAFE_ERROR_ANSWER = "Sorry, I could not answer that right now. Please try rephrasing."
 
 
+def metrics_dict(metrics: QueryMetrics) -> dict:
+    return {
+        "input_tokens": metrics.input_tokens,
+        "output_tokens": metrics.output_tokens,
+        "cost_usd": round(metrics.cost_usd, 6),
+        "latency_s": round(metrics.latency_s, 3),
+    }
+
+
 def run(question: str) -> dict:
-    # Supervise/fallback: a failing node must never leak a stack trace to the caller.
-    # The real error is logged; the user gets a safe, generic message.
-    try:
-        state = agent_graph.invoke({"question": question})
-    except Exception:
-        logger.exception("run failed question=%r", question)
+    failed = False
+    state: dict = {}
+    with track() as metrics:
+        try:
+            state = agent_graph.invoke({"question": question})
+        except Exception:
+            logger.exception("run failed question=%r", question)
+            failed = True
+
+    usage = metrics_dict(metrics)
+    if failed:
         return {
             "route": "error",
             "sql": None,
@@ -133,8 +148,11 @@ def run(question: str) -> dict:
             "rows": None,
             "context": None,
             "answer": SAFE_ERROR_ANSWER,
+            "metrics": usage,
         }
-    logger.debug("run question=%r route=%s", question, state.get("route"))
+    logger.debug(
+        "run question=%r route=%s metrics=%s", question, state.get("route"), usage
+    )
     return {
         "route": state.get("route", ""),
         "sql": state.get("sql"),
@@ -142,4 +160,5 @@ def run(question: str) -> dict:
         "rows": state.get("rows"),
         "context": state.get("context"),
         "answer": state.get("answer"),
+        "metrics": usage,
     }
