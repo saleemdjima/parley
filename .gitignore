@@ -223,7 +223,7 @@ __marimo__/
 dist/
 build/
 data/chroma/
-data/docs/
+# data/docs/ is vendored (the TLC reference PDFs) so setup needs no download.
 
 # Terraform 
 deploy/terraform/.terraform/
