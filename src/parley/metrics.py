@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -26,6 +27,9 @@ class QueryMetrics:
 
 current: ContextVar[QueryMetrics | None] = ContextVar("current_metrics", default=None)
 
+# Guards concurrent writes when hybrid branches record usage from worker threads.
+record_lock = threading.Lock()
+
 
 def price_for(model: str) -> tuple[float, float]:
     for key, price in PRICING.items():
@@ -38,10 +42,13 @@ def record_tokens(model: str, input_tokens: int, output_tokens: int) -> None:
     metrics = current.get()
     if metrics is None:
         return
-    metrics.input_tokens += input_tokens
-    metrics.output_tokens += output_tokens
     in_price, out_price = price_for(model)
-    metrics.cost_usd += (input_tokens * in_price + output_tokens * out_price) / 1_000_000
+    with record_lock:
+        metrics.input_tokens += input_tokens
+        metrics.output_tokens += output_tokens
+        metrics.cost_usd += (
+            input_tokens * in_price + output_tokens * out_price
+        ) / 1_000_000
     logger.debug(
         "record_tokens model=%s in=%d out=%d", model, input_tokens, output_tokens
     )

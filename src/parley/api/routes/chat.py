@@ -1,9 +1,8 @@
-import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException
 
-from parley.agent import ask
+from parley.agent import aask
 from parley.api.models import ChatRequest, ChatResponse
 from parley.errors import InvalidQuestion
 from parley.guards import validate_question
@@ -25,5 +24,6 @@ async def chat(request: ChatRequest) -> ChatResponse:
     except InvalidQuestion as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     logger.debug("chat message=%r", question)
-    result = await asyncio.to_thread(ask, question)
+    # aask() is the async agent path (the hybrid route runs its branches concurrently).
+    result = await aask(question)
     return ChatResponse(**result)
