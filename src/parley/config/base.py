@@ -9,7 +9,12 @@ class Settings(BaseSettings):
 
     # LLM (provider-switchable via LangChain init_chat_model)
     llm_provider: str = "google_genai"
-    llm_model: str = "gemini-2.0-flash"
+    llm_model: str = "gemini-3.8-flash"
+
+    # Agent persona. The system prompt is rendered at runtime from the catalog; these
+    # are the only domain-specific bits, so a new dataset is config, not code.
+    agent_name: str = "parley"
+    dataset_description: str = "NYC yellow-taxi trips"
 
     # Embeddings / RAG
     embeddings_provider: str = "google"
