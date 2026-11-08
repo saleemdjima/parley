@@ -1,0 +1,10 @@
+{"question": "what was the average fare?", "route": "sql", "sql": "SELECT AVG(fare_amount) AS value FROM read_parquet('nyc_yellow.parquet') ORDER BY value DESC LIMIT 20", "params": []}
+{"question": "how many trips were there?", "route": "sql", "sql": "SELECT COUNT(*) AS value FROM read_parquet('nyc_yellow.parquet') ORDER BY value DESC LIMIT 20", "params": []}
+{"question": "what is the average trip distance?", "route": "sql", "sql": "SELECT AVG(trip_distance) AS value FROM read_parquet('nyc_yellow.parquet') ORDER BY value DESC LIMIT 20", "params": []}
+{"question": "what was the total revenue?", "route": "sql", "sql": "SELECT SUM(total_amount) AS value FROM read_parquet('nyc_yellow.parquet') ORDER BY value DESC LIMIT 20", "params": []}
+{"question": "average tip by payment_type", "route": "sql", "sql": "SELECT payment_type, AVG(tip_amount) AS value FROM read_parquet('nyc_yellow.parquet') GROUP BY payment_type ORDER BY value DESC LIMIT 20", "params": []}
+{"question": "what does RatecodeID 5 mean?", "route": "rag"}
+{"question": "how is the congestion surcharge defined?", "route": "rag"}
+{"question": "what is the average fare, and what does fare_amount include?", "route": "hybrid"}
+{"question": "hi, what can you do?", "route": "clarify"}
+{"question": "what's the weather tomorrow?", "route": "clarify"}
