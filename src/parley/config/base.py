@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     llm_provider: str = "google_genai"
     llm_model: str = "gemini-3.8-flash"
 
+    llm_thinking_budget: int = 0
+
     # Agent persona. The system prompt is rendered at runtime from the catalog; these
     # are the only domain-specific bits, so a new dataset is config, not code.
     agent_name: str = "parley"
@@ -49,10 +51,13 @@ class Settings(BaseSettings):
     # Slack connector
     slack_bot_token: str = ""
     slack_app_token: str = ""
+    # Show the generated SQL in the Slack reply (a nice flex for a technical audience;
+    # flip off for a cleaner demo).
+    slack_show_sql: bool = True
 
     # API
     cors_allow_origins: str = "*"
-    api_key: str = ""  # guards write endpoints (e.g. POST /documents); empty = locked
+    api_key: str = ""
 
 
 settings = Settings()

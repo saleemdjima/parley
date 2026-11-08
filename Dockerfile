@@ -24,7 +24,8 @@ WORKDIR /app
 
 RUN useradd --create-home --uid 1000 appuser
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/data /app/data
+
+COPY --from=builder --chown=appuser:appuser /app/data /app/data
 USER appuser
 
 EXPOSE 8080
