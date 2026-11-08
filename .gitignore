@@ -158,6 +158,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.env.docker
 
 # Spyder project settings
 .spyderproject
@@ -223,7 +224,7 @@ __marimo__/
 dist/
 build/
 data/chroma/
-data/docs/
+# data/docs/ is vendored (the TLC reference PDFs) so setup needs no download.
 
 # Terraform 
 deploy/terraform/.terraform/
@@ -235,3 +236,6 @@ deploy/terraform/terraform.tfvars
 
 # Generate scripts
 scripts/
+
+# Todo 
+TODO.md

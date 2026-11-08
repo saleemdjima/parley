@@ -9,15 +9,16 @@ from parley import llm
 from parley.domains.taxi import TAXI_METRICS
 from parley.engines import get_engine
 from parley.metrics import QueryMetrics, track
+from parley.prompts import render_system_prompt
 from parley.sql.builder import build_query
+from parley.sql.catalog import get_catalog
 from parley.sql.intent import extract_intent
 from parley.sql.router import Route, route
 
 logger = logging.getLogger(__name__)
 
-RAG_PROMPT = """Answer the question using ONLY the NYC TLC documentation context
-below. If the answer is not in the context, say you don't know. Name the field or
-code you are explaining.
+RAG_PROMPT = """Answer the question using ONLY the documentation context below. If the
+answer is not in the context, say you don't know.
 
 Context:
 {context}
@@ -25,16 +26,37 @@ Context:
 Question: {question}
 Answer:"""
 
-MERGE_PROMPT = """Answer the question using BOTH sources below: the computed query
-result and the documentation context.
+MERGE_PROMPT = """Answer the question using BOTH sources below: the computed result and
+the documentation context.
 
-Query result rows: {rows}
+Result rows: {rows}
 
 Documentation context:
 {context}
 
 Question: {question}
 Answer:"""
+
+CLARIFY_PROMPT = """The user said: "{question}"
+This isn't a clear data question - it may be a greeting, too vague, or off-topic. Reply
+briefly and warmly, and gently point them toward something you can actually help with."""
+
+SQL_ANSWER_PROMPT = """The user asked: "{question}"
+The query returned these rows: {rows}
+Answer the question in one natural sentence using those numbers. Round sensibly (money
+to cents). If there are several rows, summarize the key finding."""
+
+
+def current_system_prompt() -> str:
+    # Rendered from the catalog so the agent describes whatever dataset it's pointed at.
+    try:
+        catalog = get_catalog()
+        coverage, total_rows = catalog.coverage(), catalog.total_rows
+    except Exception:
+        logger.warning("system prompt: catalog unavailable", exc_info=True)
+        coverage, total_rows = "unknown", 0
+    examples = list(TAXI_METRICS.descriptions.values())
+    return render_system_prompt(coverage, total_rows, examples)
 
 
 class AgentState(TypedDict, total=False):
@@ -55,12 +77,23 @@ def classify_node(state: AgentState) -> AgentState:
 
 def sql_node(state: AgentState) -> AgentState:
     engine = get_engine()
-    catalog = engine.catalog()
-    intent = extract_intent(state["question"], list(catalog.keys()))
-    sql, params = build_query(intent, catalog, engine, TAXI_METRICS)
+    catalog = get_catalog()
+    intent = extract_intent(
+        state["question"], catalog.column_names(), catalog.coverage(), TAXI_METRICS
+    )
+    sql, params = build_query(intent, catalog.columns, engine, TAXI_METRICS)
     rows = engine.execute(sql, params)
     logger.debug("sql_node engine=%s rows=%d", engine.name, len(rows))
-    return {"sql": sql, "params": params, "rows": rows}
+    result: AgentState = {"sql": sql, "params": params, "rows": rows}
+    # Turn the rows into a sentence for the pure-sql route. For hybrid, merge_node
+    # writes the answer from both sources, so don't spend a call here.
+    if state.get("route") != Route.hybrid.value:
+        result["answer"] = llm.answer(
+            current_system_prompt()
+            + "\n\n"
+            + SQL_ANSWER_PROMPT.format(question=state["question"], rows=rows)
+        )
+    return result
 
 
 def rag_node(state: AgentState) -> AgentState:
@@ -69,20 +102,36 @@ def rag_node(state: AgentState) -> AgentState:
 
     docs = retrieve(state["question"])
     context = format_context(docs)
-    answer = llm.answer(RAG_PROMPT.format(context=context, question=state["question"]))
+    answer = llm.answer(
+        current_system_prompt()
+        + "\n\n"
+        + RAG_PROMPT.format(context=context, question=state["question"])
+    )
     logger.debug("rag_node chunks=%d", len(docs))
     return {"context": context, "answer": answer}
 
 
 def merge_node(state: AgentState) -> AgentState:
     answer = llm.answer(
-        MERGE_PROMPT.format(
+        current_system_prompt()
+        + "\n\n"
+        + MERGE_PROMPT.format(
             question=state["question"],
             rows=state.get("rows"),
             context=state.get("context"),
         )
     )
     logger.debug("merge_node")
+    return {"answer": answer}
+
+
+def clarify_node(state: AgentState) -> AgentState:
+    # Generated through the shared system prompt so a greeting gets a warm, on-brand
+    # reply instead of a templated string.
+    answer = llm.answer(
+        current_system_prompt() + "\n\n" + CLARIFY_PROMPT.format(question=state["question"])
+    )
+    logger.debug("clarify_node")
     return {"answer": answer}
 
 
@@ -104,14 +153,18 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node("sql", sql_node)
     graph.add_node("rag", rag_node)
     graph.add_node("merge", merge_node)
+    graph.add_node("clarify", clarify_node)
 
     graph.add_edge(START, "classify")
     graph.add_conditional_edges(
-        "classify", from_classify, {"sql": "sql", "rag": "rag", "hybrid": "sql"}
+        "classify",
+        from_classify,
+        {"sql": "sql", "rag": "rag", "hybrid": "sql", "clarify": "clarify"},
     )
     graph.add_conditional_edges("sql", after_sql, {"rag": "rag", "end": END})
     graph.add_conditional_edges("rag", after_rag, {"merge": "merge", "end": END})
     graph.add_edge("merge", END)
+    graph.add_edge("clarify", END)
     return graph.compile()
 
 
@@ -147,6 +200,8 @@ async def arun(question: str) -> dict:
                 state.update(await asyncio.to_thread(merge_node, state))
             elif decision == Route.sql:
                 state.update(await asyncio.to_thread(sql_node, state))
+            elif decision == Route.clarify:
+                state.update(await asyncio.to_thread(clarify_node, state))
             else:
                 state.update(await asyncio.to_thread(rag_node, state))
         except Exception:
