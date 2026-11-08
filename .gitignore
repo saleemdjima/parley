@@ -237,5 +237,8 @@ deploy/terraform/terraform.tfvars
 # Generate scripts
 scripts/
 
-# Todo 
+# Todo
 TODO.md
+
+# Internal backlog (not for public)
+IMPROVEMENTS.md
