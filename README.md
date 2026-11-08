@@ -1,5 +1,8 @@
 # parley
 
+*A personal learning project exploring how to build safe, production-shaped systems that
+let people query data in plain language.*
+
 parley is a small analytics agent for New York City's yellow-taxi data. You ask it
 something in plain English — *"what was the average fare last January?"*, *"which
 payment type tips the most?"*, *"what does RatecodeID 5 actually mean?"* — and it
@@ -19,7 +22,7 @@ Answering in Slack — it decides between the data, the docs, and a plain-Englis
 clarification on its own, shows the SQL it ran, and tags each answer with its latency,
 tokens, and cost:
 
-![parley answering taxi questions in Slack](docs/demo.gif)
+<img src="docs/demo.gif" alt="parley answering taxi questions in Slack" height="400">
 
 ## Running it
 
@@ -94,6 +97,4 @@ the latency, tokens, and cost along the way.
 
 ## Status
 
-This is a portfolio project and a work in progress. It runs on Cloud Run today, with a
-Slack bot as the front door and natural-language answers across all three routes. Still
-on the list: a web front end and a BigQuery engine for the full multi-year dataset.
+A personal project and a work in progress — I keep iterating on it.
