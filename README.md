@@ -13,6 +13,14 @@ model is a translator, not something you'd ever hand a database connection to, s
 worst it can do is misunderstand you. It can't drop a table, invent a column, or slip
 something past a `WHERE` clause.
 
+## Demo
+
+Answering in Slack — it decides between the data, the docs, and a plain-English
+clarification on its own, shows the SQL it ran, and tags each answer with its latency,
+tokens, and cost:
+
+![parley answering taxi questions in Slack](docs/demo.gif)
+
 ## Running it
 
 You'll need [uv](https://docs.astral.sh/uv/) and a Google Gemini API key.
@@ -86,6 +94,6 @@ the latency, tokens, and cost along the way.
 
 ## Status
 
-This is a portfolio project and a work in progress. It runs locally today and is on its
-way to Cloud Run. Still on the list: turning raw result rows into a written sentence,
-a Slack bot, a web front end, and a BigQuery engine for the full multi-year dataset.
+This is a portfolio project and a work in progress. It runs on Cloud Run today, with a
+Slack bot as the front door and natural-language answers across all three routes. Still
+on the list: a web front end and a BigQuery engine for the full multi-year dataset.

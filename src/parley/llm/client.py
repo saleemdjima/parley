@@ -1,5 +1,6 @@
 import logging
 import os
+from functools import lru_cache
 from typing import TypeVar, cast
 
 from langchain.chat_models import init_chat_model
@@ -28,9 +29,15 @@ retry_llm = retry(
 )
 
 
+@lru_cache(maxsize=1)
 def chat_model() -> BaseChatModel:
-    # Swap provider/model via settings (LLM_PROVIDER / LLM_MODEL). Same code path.
-    return init_chat_model(settings.llm_model, model_provider=settings.llm_provider)
+    # Built once and reused.
+    kwargs: dict = {}
+    if settings.llm_provider == "google_genai":
+        kwargs["thinking_budget"] = settings.llm_thinking_budget
+    return init_chat_model(
+        settings.llm_model, model_provider=settings.llm_provider, **kwargs
+    )
 
 
 def text_of(message: BaseMessage) -> str:
