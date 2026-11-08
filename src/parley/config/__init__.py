@@ -1,4 +1,4 @@
 from parley.config.base import Settings, settings
-from parley.config.logging import setup_logging
+from parley.config.logging import logger, setup_logging
 
-__all__ = ["Settings", "settings", "setup_logging"]
+__all__ = ["Settings", "settings", "setup_logging", "logger"]

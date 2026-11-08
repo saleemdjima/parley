@@ -1,34 +1,42 @@
-import json
 import logging
 import os
+import sys
+from logging.config import dictConfig
 
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 
-class JsonFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        payload = {
-            "time": self.formatTime(record),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        if record.exc_info:
-            payload["exc"] = self.formatException(record.exc_info)
-        return json.dumps(payload)
+LOGGING_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s %(levelname)-8s [%(name)s] %(filename)s:%(lineno)d %(message)s",  # noqa: E501
+        },
+    },
+    "handlers": {
+        "stdout": {
+            "class": "logging.StreamHandler",
+            "level": "DEBUG",
+            "formatter": "standard",
+            "stream": sys.stdout,
+        },
+    },
+    "loggers": {
+        "parley": {"level": LOG_LEVEL, "handlers": ["stdout"], "propagate": False},
+        "httpx": {"level": "WARNING"},
+        "httpcore": {"level": "WARNING"},
+        "urllib3": {"level": "WARNING"},
+        "google_genai": {"level": "WARNING"},
+        "opentelemetry": {"level": "CRITICAL", "propagate": False},
+    },
+    "root": {"level": "WARNING", "handlers": ["stdout"]},
+}
 
 
 def setup_logging() -> None:
-    level = os.environ.get("LOG_LEVEL", "INFO").upper()
-    use_json = os.environ.get("LOG_FORMAT", "text").lower() == "json"
+    dictConfig(LOGGING_CONFIG)
 
-    handler = logging.StreamHandler()
-    if use_json:
-        handler.setFormatter(JsonFormatter())
-    else:
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-        )
 
-    root = logging.getLogger()
-    root.handlers.clear()
-    root.setLevel(level)
-    root.addHandler(handler)
+setup_logging()
+
+logger = logging.getLogger("parley")
