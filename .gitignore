@@ -158,6 +158,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.env.docker
 
 # Spyder project settings
 .spyderproject
@@ -235,3 +236,6 @@ deploy/terraform/terraform.tfvars
 
 # Generate scripts
 scripts/
+
+# Todo 
+TODO.md

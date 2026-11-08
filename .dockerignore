@@ -6,9 +6,6 @@
 .ruff_cache
 **/__pycache__/
 *.pyc
-.env
-.envrc
-# rebuilt inside the image from data/docs; never ship the local one
 data/chroma/
 tests
 IMPROVEMENTS.md
