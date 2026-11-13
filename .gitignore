@@ -234,9 +234,6 @@ deploy/terraform/terraform.tfvars
 .verify_venv/
 
 
-# Generate scripts
-scripts/
-
 # Todo
 TODO.md
 

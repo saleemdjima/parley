@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type check
+        run: uv run mypy src
+
+      - name: Test
+        run: uv run pytest -q
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write        
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (keyless, WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Docker auth
+        run: gcloud auth configure-docker ${{ vars.REGION }}-docker.pkg.dev --quiet
+
+      - name: Fetch build-time secret
+        run: |
+          KEY=$(gcloud secrets versions access latest --secret=google-api-key)
+          echo "::add-mask::$KEY"
+          echo "GOOGLE_API_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Short SHA
+        run: echo "SHA=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          secrets: |
+            google_api_key=${{ env.GOOGLE_API_KEY }}
+          tags: |
+            ${{ vars.AR_REPO }}/${{ vars.SERVICE_NAME }}:${{ env.SHA }}
+            ${{ vars.AR_REPO }}/${{ vars.SERVICE_NAME }}:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ vars.SERVICE_NAME }} \
+            --image=${{ vars.AR_REPO }}/${{ vars.SERVICE_NAME }}:${{ env.SHA }} \
+            --region=${{ vars.REGION }} \
+            --quiet
