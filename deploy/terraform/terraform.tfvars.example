@@ -1,0 +1,5 @@
+project_id            = "gen-lang-client-0522229727"
+region                = "europe-west1"
+github_repository     = "saleemdjima/parley"
+allow_unauthenticated = true
+max_instances         = 3

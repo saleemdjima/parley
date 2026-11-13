@@ -126,11 +126,10 @@ def merge_node(state: AgentState) -> AgentState:
 
 
 def clarify_node(state: AgentState) -> AgentState:
-    # Generated through the shared system prompt so a greeting gets a warm, on-brand
-    # reply instead of a templated string.
-    answer = llm.answer(
-        current_system_prompt() + "\n\n" + CLARIFY_PROMPT.format(question=state["question"])
+    prompt = current_system_prompt() + "\n\n" + CLARIFY_PROMPT.format(
+        question=state["question"]
     )
+    answer = llm.answer(prompt)
     logger.debug("clarify_node")
     return {"answer": answer}
 

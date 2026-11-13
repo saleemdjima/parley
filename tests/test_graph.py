@@ -9,7 +9,9 @@ def test_clarify_node_uses_grounded_system_prompt() -> None:
     catalog.total_rows = 1000
     with (
         patch("parley.graph.get_catalog", return_value=catalog),
-        patch("parley.graph.llm.answer", return_value="Hi! Happy to help.") as mock_answer,
+        patch(
+            "parley.graph.llm.answer", return_value="Hi! Happy to help."
+        ) as mock_answer,
     ):
         out = clarify_node({"question": "hi"})
 
