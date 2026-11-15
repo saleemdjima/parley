@@ -1,11 +1,3 @@
-"""Render the agent result dict into a single Slack message.
-
-The answer leads; the SQL and the per-query metrics (route, latency, tokens, cost)
-follow on their own lines in the same message so the demo shows the "Supervision"
-story at a glance without Slack stacking it into separate collapsible blocks.
-"""
-
-
 def format_footer(route: str, metrics: dict) -> str:
     total_tokens = (metrics.get("input_tokens") or 0) + (
         metrics.get("output_tokens") or 0
@@ -13,9 +5,12 @@ def format_footer(route: str, metrics: dict) -> str:
     parts: list[str] = []
     if route:
         parts.append(f"route `{route}`")
+    first = metrics.get("first_response_s")
+    if first is not None:
+        parts.append(f"first {first:.1f}s")
     latency = metrics.get("latency_s")
     if latency is not None:
-        parts.append(f"{latency:.1f}s")
+        parts.append(f"{latency:.1f}s total")
     parts.append(f"{total_tokens:,} tokens")
     cost = metrics.get("cost_usd")
     if cost is not None:

@@ -11,5 +11,6 @@ def test_prompt_grounds_coverage_and_renders_metrics_from_registry() -> None:
     prompt = mock_extract.call_args[0][0]
     assert "2024" in prompt
     assert "fare_amount" in prompt
-    assert "avg_fare" in prompt
+    assert "aggregation" in prompt
+    assert "avg_tip_pct" in prompt
     assert result == "intent"

@@ -23,6 +23,8 @@ LOGGING_CONFIG = {
     },
     "loggers": {
         "parley": {"level": LOG_LEVEL, "handlers": ["stdout"], "propagate": False},
+        "slack_bolt": {"level": LOG_LEVEL, "handlers": ["stdout"], "propagate": False},
+        "slack_sdk": {"level": LOG_LEVEL, "handlers": ["stdout"], "propagate": False},
         "httpx": {"level": "WARNING"},
         "httpcore": {"level": "WARNING"},
         "urllib3": {"level": "WARNING"},

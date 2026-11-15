@@ -53,8 +53,10 @@ class Settings(BaseSettings):
     # Slack connector
     slack_bot_token: str = ""
     slack_app_token: str = ""
-    # Show the generated SQL in the Slack reply 
+    # Show the generated SQL in the Slack reply
     slack_show_sql: bool = True
+    # Set to an animated custom emoji (e.g. :parley-thinking:) for a live spinner.
+    slack_spinner: str = ":hourglass_flowing_sand:"
 
     # API
     cors_allow_origins: str = "*"

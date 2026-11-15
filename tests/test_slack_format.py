@@ -12,6 +12,12 @@ def test_footer_sums_tokens_and_shows_route() -> None:
     assert "$0.000100" in footer
 
 
+def test_footer_shows_first_response_when_present() -> None:
+    footer = format_footer("sql", {"first_response_s": 0.6, "latency_s": 7.1})
+    assert "first 0.6s" in footer
+    assert "7.1s total" in footer
+
+
 def test_message_includes_sql_on_its_own_lines() -> None:
     result = {
         "route": "sql",

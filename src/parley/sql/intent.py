@@ -8,16 +8,21 @@ from parley.sql.schema import QueryIntent
 logger = logging.getLogger(__name__)
 
 INTENT_PROMPT = """You convert a question about {domain} into a typed QueryIntent.
-Pick exactly one metric. Only use these columns in group_by and filters, matching the
-names exactly: {columns}. Never invent a column. If the question implies no filter,
-return an empty filters list.
+Only use these columns in measure, group_by and filters, matching the names exactly:
+{columns}. Never invent a column. If the question implies no filter, return an empty
+filters list.
+
+Decide how to measure the answer (set exactly one of metric or aggregation):
+- Standard aggregation of a column: set `aggregation` to one of count, sum, avg, min,
+  max and `measure` to the column. Use aggregation=count with measure=null to count
+  rows. Example: "longest trip" -> aggregation=max, measure=trip_distance.
+- Predefined computed metric: set `metric` to one of the names below and leave
+  aggregation and measure null.
+{metrics}
 
 The dataset covers these years: {coverage}. When the question names a month or season
 without a year, assume the most recent year within that coverage. Never filter to a
 year outside the coverage.
-
-Metrics (pick one):
-{metrics}
 
 Question: {question}"""
 

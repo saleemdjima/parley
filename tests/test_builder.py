@@ -2,7 +2,7 @@ import pytest
 
 from parley.domains.taxi import TAXI_METRICS
 from parley.sql.builder import build_query
-from parley.sql.schema import Comparator, Filter, QueryIntent
+from parley.sql.schema import Aggregation, Comparator, Filter, QueryIntent
 
 # A representative taxi catalog. Tests need no Parquet file and no network.
 CATALOG = {
@@ -12,6 +12,7 @@ CATALOG = {
     "trip_distance": "DOUBLE",
     "PULocationID": "BIGINT",
     "payment_type": "BIGINT",
+    "store_and_fwd_flag": "VARCHAR",
     "fare_amount": "DOUBLE",
     "tip_amount": "DOUBLE",
     "total_amount": "DOUBLE",
@@ -40,11 +41,31 @@ ENGINE = FakeEngine()
 
 def test_count_no_filters():
     sql, params = build_query(
-        QueryIntent(metric="count_trips"), CATALOG, ENGINE, TAXI_METRICS
+        QueryIntent(aggregation=Aggregation.COUNT), CATALOG, ENGINE, TAXI_METRICS
     )
-    assert TAXI_METRICS.expressions["count_trips"] in sql
+    assert "COUNT(*)" in sql
     assert "read_parquet" in sql
     assert params == []
+
+
+def test_aggregation_over_column():
+    sql, _ = build_query(
+        QueryIntent(aggregation=Aggregation.AVG, measure="fare_amount"),
+        CATALOG,
+        ENGINE,
+        TAXI_METRICS,
+    )
+    assert "AVG(fare_amount) AS value" in sql
+
+
+def test_max_builds_max_expression():
+    sql, _ = build_query(
+        QueryIntent(aggregation=Aggregation.MAX, measure="trip_distance"),
+        CATALOG,
+        ENGINE,
+        TAXI_METRICS,
+    )
+    assert "MAX(trip_distance) AS value" in sql
 
 
 def test_metric_expression_comes_from_the_registry():
@@ -54,7 +75,8 @@ def test_metric_expression_comes_from_the_registry():
 
 def test_numeric_value_is_parameterized_not_inlined():
     intent = QueryIntent(
-        metric="avg_fare",
+        aggregation=Aggregation.AVG,
+        measure="fare_amount",
         filters=[Filter(column="trip_distance", op=Comparator.gt, value=7.5)],
     )
     sql, params = build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
@@ -67,7 +89,7 @@ def test_string_value_never_reaches_sql():
     # The core "safe by design" guarantee: a malicious value cannot alter the SQL.
     malicious = "x'; DROP TABLE trips; --"
     intent = QueryIntent(
-        metric="count_trips",
+        aggregation=Aggregation.COUNT,
         filters=[Filter(column="payment_type", op=Comparator.eq, value=malicious)],
     )
     sql, params = build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
@@ -77,7 +99,8 @@ def test_string_value_never_reaches_sql():
 
 def test_placeholder_count_matches_params():
     intent = QueryIntent(
-        metric="avg_total",
+        aggregation=Aggregation.AVG,
+        measure="total_amount",
         filters=[
             Filter(column="passenger_count", op=Comparator.gte, value=2),
             Filter(column="payment_type", op=Comparator.eq, value=1),
@@ -88,35 +111,63 @@ def test_placeholder_count_matches_params():
 
 
 def test_group_by_valid_column():
-    intent = QueryIntent(metric="avg_tip", group_by="payment_type")
+    intent = QueryIntent(
+        aggregation=Aggregation.AVG, measure="tip_amount", group_by="payment_type"
+    )
     sql, _ = build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
     assert "GROUP BY" in sql.upper()
     assert "payment_type" in sql
 
 
 def test_scalar_aggregate_has_no_order_or_limit():
-    intent = QueryIntent(metric="avg_fare", order_desc=False, top_n=5)
+    intent = QueryIntent(
+        aggregation=Aggregation.AVG, measure="fare_amount", order_desc=False, top_n=5
+    )
     sql, _ = build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
     assert "ORDER BY" not in sql.upper()
     assert "LIMIT" not in sql.upper()
 
 
 def test_grouped_ranking_uses_default_limit():
-    intent = QueryIntent(metric="avg_tip", group_by="payment_type")
+    intent = QueryIntent(
+        aggregation=Aggregation.AVG, measure="tip_amount", group_by="payment_type"
+    )
     sql, _ = build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
     assert "ORDER BY value DESC" in sql
     assert "LIMIT 20" in sql
 
 
 def test_top_n_overrides_default_limit():
-    intent = QueryIntent(metric="avg_tip", group_by="payment_type", top_n=5)
+    intent = QueryIntent(
+        aggregation=Aggregation.AVG,
+        measure="tip_amount",
+        group_by="payment_type",
+        top_n=5,
+    )
     sql, _ = build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
     assert "LIMIT 5" in sql
 
 
+def test_avg_on_non_numeric_column_raises():
+    intent = QueryIntent(aggregation=Aggregation.AVG, measure="store_and_fwd_flag")
+    with pytest.raises(ValueError):
+        build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
+
+
+def test_requires_metric_or_aggregation():
+    with pytest.raises(ValueError):
+        build_query(QueryIntent(), CATALOG, ENGINE, TAXI_METRICS)
+
+
+def test_rejects_unwhitelisted_measure():
+    intent = QueryIntent(aggregation=Aggregation.MAX, measure="not_a_column")
+    with pytest.raises(ValueError):
+        build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
+
+
 def test_rejects_unwhitelisted_filter_column():
     intent = QueryIntent(
-        metric="count_trips",
+        aggregation=Aggregation.COUNT,
         filters=[Filter(column="hacked; DROP TABLE t", op=Comparator.eq, value=1)],
     )
     with pytest.raises(ValueError):
@@ -124,7 +175,7 @@ def test_rejects_unwhitelisted_filter_column():
 
 
 def test_rejects_unwhitelisted_group_by():
-    intent = QueryIntent(metric="count_trips", group_by="not_a_column")
+    intent = QueryIntent(aggregation=Aggregation.COUNT, group_by="not_a_column")
     with pytest.raises(ValueError):
         build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
 

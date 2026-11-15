@@ -23,6 +23,7 @@ class QueryMetrics:
     output_tokens: int = 0
     latency_s: float = 0.0
     cost_usd: float = 0.0
+    first_response_s: float | None = None
 
 
 current: ContextVar[QueryMetrics | None] = ContextVar("current_metrics", default=None)
