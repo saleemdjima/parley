@@ -73,6 +73,8 @@ def record_usage(message: BaseMessage, model: str | None = None) -> None:
 
 @retry_llm
 def classify(prompt: str) -> str:
+    # Plain text: the cheap router model is pinned to the v1 API, which rejects both
+    # JSON mode and function calling, so structured output is off the table here.
     message = router_chat_model().invoke(prompt)
     record_usage(message, settings.router_model)
     text = text_of(message).strip()

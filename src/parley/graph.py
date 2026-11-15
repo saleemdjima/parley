@@ -66,6 +66,7 @@ def current_system_prompt() -> str:
 class AgentState(TypedDict, total=False):
     question: str
     route: str
+    reasoning: str
     sql: str
     params: list
     rows: list
@@ -76,8 +77,8 @@ class AgentState(TypedDict, total=False):
 
 def classify_node(state: AgentState) -> AgentState:
     decision = route(state["question"])
-    logger.debug("classify_node -> %s", decision)
-    return {"route": decision.value}
+    logger.debug("classify_node -> %s", decision.route)
+    return {"route": decision.route.value, "reasoning": decision.reasoning}
 
 
 def sql_node(state: AgentState) -> AgentState:
@@ -228,6 +229,7 @@ def metrics_dict(metrics: QueryMetrics) -> dict:
 def build_result(state: dict, usage: dict) -> dict:
     return {
         "route": state.get("route", ""),
+        "reasoning": state.get("reasoning"),
         "sql": state.get("sql"),
         "params": state.get("params"),
         "rows": state.get("rows"),
@@ -241,6 +243,7 @@ def build_result(state: dict, usage: dict) -> dict:
 def error_result(usage: dict) -> dict:
     return {
         "route": "error",
+        "reasoning": None,
         "sql": None,
         "params": None,
         "rows": None,
