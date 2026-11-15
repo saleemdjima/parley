@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     llm_provider: str = "google_genai"
     llm_model: str = "gemini-3.8-flash"
 
+    # Cheap, fast model for the router/classify step (one word of output).
+    router_model: str = "gemini-2.5-flash-lite"
+
     llm_thinking_budget: int = 0
 
     # Agent persona. The system prompt is rendered at runtime from the catalog; these
@@ -25,8 +28,7 @@ class Settings(BaseSettings):
     docs_dir: str = "data/docs"
     chroma_dir: str = "data/chroma"
     chroma_collection: str = "tlc_docs"
-    # Vector-store seam: "local" uses a persist_directory (dev / ephemeral demo);
-    # "server" connects to a Chroma HTTP server (stateless app, external state).
+    # Vector-store seam
     chroma_mode: str = "local"
     chroma_host: str = "localhost"
     chroma_port: int = 8000
@@ -51,8 +53,7 @@ class Settings(BaseSettings):
     # Slack connector
     slack_bot_token: str = ""
     slack_app_token: str = ""
-    # Show the generated SQL in the Slack reply (a nice flex for a technical audience;
-    # flip off for a cleaner demo).
+    # Show the generated SQL in the Slack reply 
     slack_show_sql: bool = True
 
     # API
