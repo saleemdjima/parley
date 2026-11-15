@@ -94,6 +94,26 @@ def test_group_by_valid_column():
     assert "payment_type" in sql
 
 
+def test_scalar_aggregate_has_no_order_or_limit():
+    intent = QueryIntent(metric="avg_fare", order_desc=False, top_n=5)
+    sql, _ = build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
+    assert "ORDER BY" not in sql.upper()
+    assert "LIMIT" not in sql.upper()
+
+
+def test_grouped_ranking_uses_default_limit():
+    intent = QueryIntent(metric="avg_tip", group_by="payment_type")
+    sql, _ = build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
+    assert "ORDER BY value DESC" in sql
+    assert "LIMIT 20" in sql
+
+
+def test_top_n_overrides_default_limit():
+    intent = QueryIntent(metric="avg_tip", group_by="payment_type", top_n=5)
+    sql, _ = build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
+    assert "LIMIT 5" in sql
+
+
 def test_rejects_unwhitelisted_filter_column():
     intent = QueryIntent(
         metric="count_trips",
@@ -110,8 +130,6 @@ def test_rejects_unwhitelisted_group_by():
 
 
 def test_rejects_unknown_metric():
-    # A metric not in the registry must raise the same catchable ValueError as an
-    # unwhitelisted column, never a raw KeyError.
     intent = QueryIntent(metric="avg_nonexistent")
     with pytest.raises(ValueError):
         build_query(intent, CATALOG, ENGINE, TAXI_METRICS)

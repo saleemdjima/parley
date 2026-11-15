@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from typing import TypedDict
 
@@ -14,6 +13,7 @@ from parley.sql.builder import build_query
 from parley.sql.catalog import get_catalog
 from parley.sql.intent import extract_intent
 from parley.sql.router import Route, route
+from parley.verify import judge
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,7 @@ class AgentState(TypedDict, total=False):
     rows: list
     context: str
     answer: str
+    verified: bool
 
 
 def classify_node(state: AgentState) -> AgentState:
@@ -85,8 +86,7 @@ def sql_node(state: AgentState) -> AgentState:
     rows = engine.execute(sql, params)
     logger.debug("sql_node engine=%s rows=%d", engine.name, len(rows))
     result: AgentState = {"sql": sql, "params": params, "rows": rows}
-    # Turn the rows into a sentence for the pure-sql route. For hybrid, merge_node
-    # writes the answer from both sources, so don't spend a call here.
+    # Turn the rows into a sentence for the pure-sql route.
     if state.get("route") != Route.hybrid.value:
         result["answer"] = llm.answer(
             current_system_prompt()
@@ -126,24 +126,60 @@ def merge_node(state: AgentState) -> AgentState:
 
 
 def clarify_node(state: AgentState) -> AgentState:
-    prompt = current_system_prompt() + "\n\n" + CLARIFY_PROMPT.format(
-        question=state["question"]
+    prompt = (
+        current_system_prompt()
+        + "\n\n"
+        + CLARIFY_PROMPT.format(question=state["question"])
     )
     answer = llm.answer(prompt)
     logger.debug("clarify_node")
     return {"answer": answer}
 
 
-def from_classify(state: AgentState) -> str:
-    return state["route"]
+def evidence_for(state: AgentState) -> str:
+    # The ground truth the judge checks against.
+    parts: list[str] = []
+    sql = state.get("sql")
+    if sql:
+        parts.append(f"SQL query: {sql}")
+    rows = state.get("rows")
+    if rows:
+        parts.append(f"Result rows: {rows}")
+    context = state.get("context")
+    if context:
+        parts.append(f"Documentation:\n{context}")
+    return "\n\n".join(parts)
 
 
-def after_sql(state: AgentState) -> str:
-    return "rag" if state["route"] == Route.hybrid.value else "end"
+def verify_node(state: AgentState) -> AgentState:
+    # Every route terminates here, so no answer reaches the user unchecked.
+    answer = state.get("answer") or ""
+    if state.get("route") == Route.clarify.value:
+        return {"verified": True}
+    if not answer.strip():
+        logger.warning("verify_node empty answer route=%s", state.get("route"))
+        return {"answer": SAFE_ERROR_ANSWER, "verified": False}
+    evidence = evidence_for(state)
+    if not evidence:
+        return {"verified": True}
+    verdict = judge(state["question"], answer, evidence)
+    return {"answer": verdict.answer, "verified": verdict.supported}
 
 
-def after_rag(state: AgentState) -> str:
-    return "merge" if state["route"] == Route.hybrid.value else "end"
+def route_from_classify(state: AgentState) -> list[str] | str:
+    # Hybrid fans out to sql and rag in parallel (one LangGraph superstep)
+    decision = state["route"]
+    if decision == Route.hybrid.value:
+        return ["sql", "rag"]
+    if decision == Route.rag.value:
+        return "rag"
+    if decision == Route.clarify.value:
+        return "clarify"
+    return "sql"
+
+
+def after_data(state: AgentState) -> str:
+    return "merge" if state["route"] == Route.hybrid.value else "verify"
 
 
 def build_graph() -> CompiledStateGraph:
@@ -153,17 +189,17 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node("rag", rag_node)
     graph.add_node("merge", merge_node)
     graph.add_node("clarify", clarify_node)
+    graph.add_node("verify", verify_node)
 
     graph.add_edge(START, "classify")
     graph.add_conditional_edges(
-        "classify",
-        from_classify,
-        {"sql": "sql", "rag": "rag", "hybrid": "sql", "clarify": "clarify"},
+        "classify", route_from_classify, ["sql", "rag", "clarify"]
     )
-    graph.add_conditional_edges("sql", after_sql, {"rag": "rag", "end": END})
-    graph.add_conditional_edges("rag", after_rag, {"merge": "merge", "end": END})
-    graph.add_edge("merge", END)
-    graph.add_edge("clarify", END)
+    graph.add_conditional_edges("sql", after_data, {"merge": "merge", "verify": "verify"})
+    graph.add_conditional_edges("rag", after_data, {"merge": "merge", "verify": "verify"})
+    graph.add_edge("merge", "verify")
+    graph.add_edge("clarify", "verify")
+    graph.add_edge("verify", END)
     return graph.compile()
 
 
@@ -182,41 +218,7 @@ def metrics_dict(metrics: QueryMetrics) -> dict:
     }
 
 
-async def arun(question: str) -> dict:
-    with track() as metrics:
-        try:
-            state: AgentState = {"question": question}
-            decision = await asyncio.to_thread(route, question)
-            state["route"] = decision.value
-
-            if decision == Route.hybrid:
-                sql_part, rag_part = await asyncio.gather(
-                    asyncio.to_thread(sql_node, state),
-                    asyncio.to_thread(rag_node, state),
-                )
-                state.update(sql_part)
-                state.update(rag_part)
-                state.update(await asyncio.to_thread(merge_node, state))
-            elif decision == Route.sql:
-                state.update(await asyncio.to_thread(sql_node, state))
-            elif decision == Route.clarify:
-                state.update(await asyncio.to_thread(clarify_node, state))
-            else:
-                state.update(await asyncio.to_thread(rag_node, state))
-        except Exception:
-            logger.exception("arun failed question=%r", question)
-            return {
-                "route": "error",
-                "sql": None,
-                "params": None,
-                "rows": None,
-                "context": None,
-                "answer": SAFE_ERROR_ANSWER,
-                "metrics": metrics_dict(metrics),
-            }
-
-    usage = metrics_dict(metrics)
-    logger.debug("arun question=%r route=%s metrics=%s", question, state["route"], usage)
+def build_result(state: dict, usage: dict) -> dict:
     return {
         "route": state.get("route", ""),
         "sql": state.get("sql"),
@@ -224,40 +226,49 @@ async def arun(question: str) -> dict:
         "rows": state.get("rows"),
         "context": state.get("context"),
         "answer": state.get("answer"),
+        "verified": state.get("verified"),
         "metrics": usage,
     }
 
 
+def error_result(usage: dict) -> dict:
+    return {
+        "route": "error",
+        "sql": None,
+        "params": None,
+        "rows": None,
+        "context": None,
+        "answer": SAFE_ERROR_ANSWER,
+        "verified": False,
+        "metrics": usage,
+    }
+
+
+async def arun(question: str) -> dict:
+    # Async entry point (Slack + API).
+    with track() as metrics:
+        try:
+            state = await agent_graph.ainvoke({"question": question})
+        except Exception:
+            logger.exception("arun failed question=%r", question)
+            return error_result(metrics_dict(metrics))
+    usage = metrics_dict(metrics)
+    logger.debug(
+        "arun question=%r route=%s metrics=%s", question, state.get("route"), usage
+    )
+    return build_result(state, usage)
+
+
 def run(question: str) -> dict:
-    failed = False
-    state: dict = {}
+    # Sync entry point (CLI). Same graph as arun.
     with track() as metrics:
         try:
             state = agent_graph.invoke({"question": question})
         except Exception:
             logger.exception("run failed question=%r", question)
-            failed = True
-
+            return error_result(metrics_dict(metrics))
     usage = metrics_dict(metrics)
-    if failed:
-        return {
-            "route": "error",
-            "sql": None,
-            "params": None,
-            "rows": None,
-            "context": None,
-            "answer": SAFE_ERROR_ANSWER,
-            "metrics": usage,
-        }
     logger.debug(
         "run question=%r route=%s metrics=%s", question, state.get("route"), usage
     )
-    return {
-        "route": state.get("route", ""),
-        "sql": state.get("sql"),
-        "params": state.get("params"),
-        "rows": state.get("rows"),
-        "context": state.get("context"),
-        "answer": state.get("answer"),
-        "metrics": usage,
-    }
+    return build_result(state, usage)

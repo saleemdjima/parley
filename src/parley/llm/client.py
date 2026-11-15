@@ -16,7 +16,6 @@ T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
 
-# Bridge the key loaded from .env so Gemini auth works.
 if settings.google_api_key:
     os.environ.setdefault("GOOGLE_API_KEY", settings.google_api_key)
 
@@ -40,6 +39,14 @@ def chat_model() -> BaseChatModel:
     )
 
 
+@lru_cache(maxsize=1)
+def router_chat_model() -> BaseChatModel:
+    # A separate cheap model for routing. 
+    return init_chat_model(
+        settings.router_model, model_provider=settings.llm_provider
+    )
+
+
 def text_of(message: BaseMessage) -> str:
     content = message.content
     if isinstance(content, str):
@@ -53,14 +60,12 @@ def text_of(message: BaseMessage) -> str:
     return "".join(parts)
 
 
-def record_usage(message: BaseMessage) -> None:
-    # LangChain normalizes token counts across providers onto usage_metadata, so
-    # the eval harness tracks cost the same way whatever the backend.
+def record_usage(message: BaseMessage, model: str | None = None) -> None:
     usage = getattr(message, "usage_metadata", None)
     if not usage:
         return
     record_tokens(
-        settings.llm_model,
+        model or settings.llm_model,
         usage.get("input_tokens", 0) or 0,
         usage.get("output_tokens", 0) or 0,
     )
@@ -68,17 +73,16 @@ def record_usage(message: BaseMessage) -> None:
 
 @retry_llm
 def classify(prompt: str) -> str:
-    message = chat_model().invoke(prompt)
-    record_usage(message)
+    message = router_chat_model().invoke(prompt)
+    record_usage(message, settings.router_model)
     text = text_of(message).strip()
-    logger.debug("classify -> %r", text)
+    logger.debug("classify model=%s -> %r", settings.router_model, text)
     return text
 
 
 @retry_llm
 def extract(prompt: str, schema: type[T]) -> T:
     model = chat_model().with_structured_output(schema, include_raw=True)
-    # include_raw=True always yields a dict with "raw"/"parsed"; the stub widens it.
     result = cast(dict, model.invoke(prompt))
     record_usage(result["raw"])
     logger.debug("extract parsed=%s", result["parsed"])
