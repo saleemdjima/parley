@@ -7,6 +7,9 @@ from parley.sql.schema import QueryIntent
 
 logger = logging.getLogger(__name__)
 
+# Default cap on a grouped ranking when the user didn't ask for a specific count.
+DEFAULT_GROUP_LIMIT = 20
+
 
 @dataclass(frozen=True)
 class MetricRegistry:
@@ -53,11 +56,12 @@ def build_query(
             params.append(predicate.value)
         clauses.append("WHERE " + " AND ".join(conditions))
 
+    # ORDER BY
     if intent.group_by:
         clauses.append(f"GROUP BY {intent.group_by}")
-
-    clauses.append(f"ORDER BY value {'DESC' if intent.order_desc else 'ASC'}")
-    clauses.append(f"LIMIT {max(1, min(intent.limit, settings.max_limit))}")
+        clauses.append(f"ORDER BY value {'DESC' if intent.order_desc else 'ASC'}")
+        limit = intent.top_n if intent.top_n is not None else DEFAULT_GROUP_LIMIT
+        clauses.append(f"LIMIT {max(1, min(limit, settings.max_limit))}")
 
     sql = " ".join(clauses)
     logger.debug("build_query sql=%s params=%s", sql, params)
