@@ -9,6 +9,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     route: str = Field(..., description="Which path answered: sql, rag, hybrid, error.")
+    reasoning: str | None = Field(None, description="Why the router chose this path.")
     answer: str | None = Field(None, description="Natural-language answer.")
     sql: str | None = Field(None, description="The generated SQL, when the SQL path ran.")
     params: list | None = Field(None, description="Bound SQL parameters.")

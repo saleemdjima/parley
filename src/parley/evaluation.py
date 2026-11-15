@@ -75,7 +75,7 @@ def run_case(case: dict) -> CaseResult:
     actual_sql: str | None = None
     actual_params: list | None = None
     with track() as metrics:
-        decision = route(question)
+        decision = route(question).route
         if decision == Route.sql:
             intent = extract_intent(
                 question, list(CANONICAL_COLUMNS), CANONICAL_COVERAGE, TAXI_METRICS
