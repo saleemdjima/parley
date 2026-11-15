@@ -12,6 +12,14 @@ class Comparator(StrEnum):
     gte = ">="
 
 
+class Aggregation(StrEnum):
+    COUNT = "count"
+    SUM = "sum"
+    AVG = "avg"
+    MIN = "min"
+    MAX = "max"
+
+
 class Filter(BaseModel):
     column: str
     op: Comparator
@@ -19,7 +27,13 @@ class Filter(BaseModel):
 
 
 class QueryIntent(BaseModel):
-    metric: str
+    # Exactly one of metric (a named computed metric) or aggregation (+ measure).
+    metric: str | None = None
+    aggregation: Aggregation | None = None
+    measure: str | None = Field(
+        default=None,
+        description="Column to aggregate. Null with aggregation=count means count rows.",
+    )
     group_by: str | None = None
     filters: list[Filter] = Field(default_factory=list)
     # order_desc and top_n only shape a grouped ranking.

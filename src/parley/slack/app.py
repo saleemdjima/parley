@@ -1,12 +1,13 @@
 import asyncio
 import logging
 import re
+import textwrap
 
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
-from parley.agent import aask
 from parley.config import settings, setup_logging
+from parley.graph import astream_run
 from parley.slack.format import format_blocks
 from parley.sql.catalog import get_catalog
 
@@ -19,7 +20,26 @@ def strip_mention(text: str) -> str:
     return MENTION.sub("", text).strip()
 
 
-THINKING = ":hourglass_flowing_sand: Thinking..."
+def step_line(node: str, state: dict) -> str | None:
+    if node == "classify":
+        return f"routed to *{state.get('route')}*"
+    if node == "sql":
+        return f"ran `{textwrap.shorten(state.get('sql') or '', 80)}`"
+    if node == "rag":
+        return "searched the docs"
+    if node == "merge":
+        return "combined data and docs"
+    if node == "verify":
+        return "answer verified" if state.get("verified") else "revised the answer"
+    return None
+
+
+def progress_text(lines: list[str]) -> str:
+    header = f"{settings.slack_spinner} _working..._"
+    if not lines:
+        return header
+    body = "\n".join(f"› {line}" for line in lines)
+    return f"{header}\n{body}"
 
 
 async def respond(text: str, event: dict, say, client) -> None:
@@ -28,13 +48,23 @@ async def respond(text: str, event: dict, say, client) -> None:
         return
     channel = event["channel"]
     logger.debug("slack question=%r channel=%s", question, channel)
-    # Post a placeholder inline (no thread_ts, so it isn't hidden behind a collapsed
-    # thread toggle), then edit it in place with the answer (DVF pattern).
-    placeholder = await say(text=THINKING)
-    result = await aask(question)
+    placeholder = await say(text=progress_text([]))
+    ts = placeholder["ts"]
+    lines: list[str] = []
+    result: dict = {}
+    async for event_dict in astream_run(question):
+        if event_dict["kind"] == "step":
+            line = step_line(event_dict["node"], event_dict["state"])
+            if line:
+                lines.append(line)
+                await client.chat_update(
+                    channel=channel, ts=ts, text=progress_text(lines)
+                )
+        else:
+            result = event_dict["result"]
     await client.chat_update(
         channel=channel,
-        ts=placeholder["ts"],
+        ts=ts,
         text=result.get("answer") or "...",
         blocks=format_blocks(result, show_sql=settings.slack_show_sql),
     )
