@@ -1,4 +1,6 @@
 import logging
+import time
+from collections.abc import AsyncIterator
 from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -210,12 +212,15 @@ SAFE_ERROR_ANSWER = "Sorry, I could not answer that right now. Please try rephra
 
 
 def metrics_dict(metrics: QueryMetrics) -> dict:
-    return {
+    data = {
         "input_tokens": metrics.input_tokens,
         "output_tokens": metrics.output_tokens,
         "cost_usd": round(metrics.cost_usd, 6),
         "latency_s": round(metrics.latency_s, 3),
     }
+    if metrics.first_response_s is not None:
+        data["first_response_s"] = round(metrics.first_response_s, 3)
+    return data
 
 
 def build_result(state: dict, usage: dict) -> dict:
@@ -244,23 +249,8 @@ def error_result(usage: dict) -> dict:
     }
 
 
-async def arun(question: str) -> dict:
-    # Async entry point (Slack + API).
-    with track() as metrics:
-        try:
-            state = await agent_graph.ainvoke({"question": question})
-        except Exception:
-            logger.exception("arun failed question=%r", question)
-            return error_result(metrics_dict(metrics))
-    usage = metrics_dict(metrics)
-    logger.debug(
-        "arun question=%r route=%s metrics=%s", question, state.get("route"), usage
-    )
-    return build_result(state, usage)
-
-
 def run(question: str) -> dict:
-    # Sync entry point (CLI). Same graph as arun.
+    # Sync entry point (CLI).
     with track() as metrics:
         try:
             state = agent_graph.invoke({"question": question})
@@ -272,3 +262,33 @@ def run(question: str) -> dict:
         "run question=%r route=%s metrics=%s", question, state.get("route"), usage
     )
     return build_result(state, usage)
+
+
+async def astream_run(question: str) -> AsyncIterator[dict]:
+    # Yields a "step" event per node as it finishes, then one "result" event.
+    merged: dict = {}
+    failed = False
+    with track() as metrics:
+        start = time.monotonic()
+        try:
+            async for update in agent_graph.astream(
+                {"question": question}, stream_mode="updates"
+            ):
+                for node, delta in update.items():
+                    if metrics.first_response_s is None:
+                        metrics.first_response_s = time.monotonic() - start
+                    if delta:
+                        merged.update(delta)
+                    yield {"kind": "step", "node": node, "state": dict(merged)}
+        except Exception:
+            logger.exception("astream_run failed question=%r", question)
+            failed = True
+    usage = metrics_dict(metrics)
+    logger.debug(
+        "astream_run question=%r route=%s metrics=%s",
+        question,
+        merged.get("route"),
+        usage,
+    )
+    result = error_result(usage) if failed else build_result(merged, usage)
+    yield {"kind": "result", "result": result}
