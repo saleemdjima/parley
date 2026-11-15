@@ -45,8 +45,10 @@ briefly and warmly, and gently point them toward something you can actually help
 
 SQL_ANSWER_PROMPT = """The user asked: "{question}"
 The query returned these rows: {rows}
-Answer the question in one natural sentence using those numbers. Round sensibly (money
-to cents). If there are several rows, summarize the key finding."""
+Answer in natural sentence using those numbers. Round sensibly (money to cents).
+State only what the rows support: do not assert a time period, location, or any other
+filter that is not reflected in the query. If there are several rows, summarize the key
+finding."""
 
 
 def current_system_prompt() -> str:

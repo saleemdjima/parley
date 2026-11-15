@@ -42,3 +42,25 @@ def test_chat_ok(monkeypatch):
 def test_chat_rejects_empty():
     resp = client.post("/chat", json={"message": "   "})
     assert resp.status_code == 400
+
+
+def test_chat_stream_emits_sse(monkeypatch):
+    async def fake_stream(question: str):
+        yield {"kind": "step", "node": "classify", "state": {"route": "sql"}}
+        yield {"kind": "result", "result": {"route": "sql", "answer": "42"}}
+
+    monkeypatch.setattr("parley.api.routes.chat.astream_run", fake_stream)
+    with client.stream(
+        "GET", "/chat/stream", params={"message": "how many trips?"}
+    ) as resp:
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        body = "".join(resp.iter_text())
+    assert "event: step" in body
+    assert "event: result" in body
+    assert "42" in body
+
+
+def test_chat_stream_rejects_empty():
+    resp = client.get("/chat/stream", params={"message": "   "})
+    assert resp.status_code == 400
