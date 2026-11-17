@@ -148,6 +148,31 @@ def test_top_n_overrides_default_limit():
     assert "LIMIT 5" in sql
 
 
+def test_breakdown_ignores_arbitrary_order_desc():
+    # No top_n: a plain breakdown is always highest-first, regardless of order_desc,
+    # so the arbitrary LLM flag can't make the SQL flake run to run.
+    intent = QueryIntent(
+        aggregation=Aggregation.AVG,
+        measure="tip_amount",
+        group_by="payment_type",
+        order_desc=False,
+    )
+    sql, _ = build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
+    assert "ORDER BY value DESC" in sql
+
+
+def test_explicit_bottom_ranking_orders_ascending():
+    intent = QueryIntent(
+        aggregation=Aggregation.AVG,
+        measure="tip_amount",
+        group_by="payment_type",
+        order_desc=False,
+        top_n=5,
+    )
+    sql, _ = build_query(intent, CATALOG, ENGINE, TAXI_METRICS)
+    assert "ORDER BY value ASC" in sql
+
+
 def test_avg_on_non_numeric_column_raises():
     intent = QueryIntent(aggregation=Aggregation.AVG, measure="store_and_fwd_flag")
     with pytest.raises(ValueError):

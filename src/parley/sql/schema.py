@@ -37,7 +37,11 @@ class QueryIntent(BaseModel):
     group_by: str | None = None
     filters: list[Filter] = Field(default_factory=list)
     # order_desc and top_n only shape a grouped ranking.
-    order_desc: bool = True
+    order_desc: bool = Field(
+        default=True,
+        description="Sort direction for a ranking; only has effect when top_n is set. "
+        "True for highest-first (top), false for lowest-first (bottom/cheapest).",
+    )
     top_n: int | None = Field(
         default=None,
         description="Only set when the user explicitly asks for a fixed number of "

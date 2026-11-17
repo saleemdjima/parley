@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     cors_allow_origins: str = "*"
     api_key: str = ""
 
+    # Conversation memory. database_url present -> Postgres (Neon) checkpointer +
+    # conversations table; absent -> local SQLite file (dev). Opt-in: without either,
+    # the agent runs stateless exactly as before.
+    database_url: str = ""
+    sqlite_path: str = "data/parley.sqlite"
+
 
 settings = Settings()
 
