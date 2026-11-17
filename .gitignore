@@ -239,3 +239,6 @@ TODO.md
 
 # Internal backlog
 IMPROVEMENTS.md
+
+# Data
+data/*.sqlite*

@@ -1,3 +1,6 @@
+from urllib.parse import quote
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,13 +14,12 @@ class Settings(BaseSettings):
     llm_provider: str = "google_genai"
     llm_model: str = "gemini-3.8-flash"
 
-    # Cheap, fast model for the router/classify step (one word of output).
-    router_model: str = "gemini-2.5-flash-lite"
+    # Router/classify step. flash-lite over-triggers "clarify"
+    router_model: str = "gemini-2.5-flash"
 
     llm_thinking_budget: int = 0
 
-    # Agent persona. The system prompt is rendered at runtime from the catalog; these
-    # are the only domain-specific bits, so a new dataset is config, not code.
+    # Agent persona.
     agent_name: str = "parley"
     dataset_description: str = "NYC yellow-taxi trips"
 
@@ -53,9 +55,8 @@ class Settings(BaseSettings):
     # Slack connector
     slack_bot_token: str = ""
     slack_app_token: str = ""
-    # Show the generated SQL in the Slack reply
     slack_show_sql: bool = True
-    # Set to an animated custom emoji (e.g. :parley-thinking:) for a live spinner.
+    # Set to an animated custom emoji
     slack_spinner: str = ":hourglass_flowing_sand:"
 
     # API
@@ -66,6 +67,25 @@ class Settings(BaseSettings):
     database_url: str = ""
     sqlite_path: str = "data/parley.sqlite"
 
+    # Neon/Postgres parts.
+    postgres_host: str = ""
+    postgres_port: int = 5432
+    postgres_db: str = ""
+    postgres_user: str = ""
+    postgres_password: str = ""
+    postgres_sslmode: str = "require"
+
+    @model_validator(mode="after")
+    def assemble_database_url(self) -> "Settings":
+        if not self.database_url and self.postgres_host and self.postgres_password:
+            user = quote(self.postgres_user)
+            password = quote(self.postgres_password)
+            self.database_url = (
+                f"postgresql://{user}:{password}@{self.postgres_host}"
+                f":{self.postgres_port}/{self.postgres_db}"
+                f"?sslmode={self.postgres_sslmode}"
+            )
+        return self
+
 
 settings = Settings()
-
