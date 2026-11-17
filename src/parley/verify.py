@@ -27,7 +27,10 @@ phrasing, reasonable summarization, and labels implied by the question or SQL (e
 unit being counted) are all fine -- only mark it unsupported if a figure or claim
 genuinely contradicts the evidence or cannot be derived from it. If consistent, set
 supported=true and return the answer unchanged. If not, set supported=false and rewrite
-the answer so it matches the evidence, using only what the evidence shows."""
+the answer so it matches the evidence, using only what the evidence shows.
+
+Always write the answer in the same language as the Question, even though the evidence
+is in English."""
 
 
 class Verdict(BaseModel):

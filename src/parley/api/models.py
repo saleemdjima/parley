@@ -11,6 +11,18 @@ class ChatRequest(BaseModel):
     user_id: str | None = Field(None, description="Scopes long-term memory to a user.")
 
 
+class UserCreate(BaseModel):
+    pseudo: str = Field(..., description="Chosen display name; also the login handle.")
+
+
+class UserProfile(BaseModel):
+    user_id: str = Field(
+        ..., description="Normalized handle; scopes memory and conversations."
+    )
+    pseudo: str = Field(..., description="Display name as entered.")
+    created_at: str = Field(..., description="ISO timestamp of account creation.")
+
+
 class ChatResponse(BaseModel):
     route: str = Field(..., description="Which path answered: sql, rag, hybrid, error.")
     thread_id: str | None = Field(None, description="Conversation id to continue.")

@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from parley.api.routes.chat import router as chat_router
 from parley.api.routes.docs import router as docs_router
+from parley.api.routes.users import router as users_router
 from parley.config import settings, setup_logging
 from parley.graph import set_stateful_graph
 from parley.memory import open_checkpointer, open_store
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
 
     app.include_router(chat_router)
     app.include_router(docs_router)
+    app.include_router(users_router)
     return app
 
 

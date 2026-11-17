@@ -11,8 +11,9 @@ class Settings(BaseSettings):
     llm_provider: str = "google_genai"
     llm_model: str = "gemini-3.8-flash"
 
-    # Cheap, fast model for the router/classify step (one word of output).
-    router_model: str = "gemini-2.5-flash-lite"
+    # Router/classify step. flash-lite over-triggers "clarify" on vague-but-answerable
+    # questions ("most popular trips"); flash follows the "assume a default" rule reliably.
+    router_model: str = "gemini-2.5-flash"
 
     llm_thinking_budget: int = 0
 
