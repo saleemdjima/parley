@@ -41,7 +41,7 @@ variable "allow_unauthenticated" {
 
 variable "min_instances" {
   type        = number
-  default     = 0
+  default     = 1
   description = "0 scales to zero (free when idle, ~2-3s cold start)."
 }
 
