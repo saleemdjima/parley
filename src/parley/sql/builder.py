@@ -110,9 +110,8 @@ def build_query(
 
     if intent.group_by:
         clauses.append(f"GROUP BY {intent.group_by}")
-        # Direction only matters for an explicit ranking (top_n). A plain breakdown has
-        # no inherent order, so pin it highest-first rather than let the arbitrary
-        # order_desc flag flip the SQL run to run.
+        # A plain breakdown (no top_n) has no inherent order; pin it highest-first so the
+        # arbitrary order_desc flag can't flip the SQL run to run.
         descending = intent.top_n is None or intent.order_desc
         clauses.append(f"ORDER BY value {'DESC' if descending else 'ASC'}")
         limit = intent.top_n if intent.top_n is not None else DEFAULT_GROUP_LIMIT

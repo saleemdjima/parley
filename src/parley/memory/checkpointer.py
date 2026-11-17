@@ -2,6 +2,7 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any, cast
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
@@ -12,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def open_checkpointer() -> AsyncGenerator[BaseCheckpointSaver]:
-    # Neon/Postgres otherwise a local SQLite file for dev.
     if settings.database_url:
         async with open_postgres() as saver:
             yield saver
@@ -24,6 +24,7 @@ async def open_checkpointer() -> AsyncGenerator[BaseCheckpointSaver]:
 @asynccontextmanager
 async def open_postgres() -> AsyncGenerator[BaseCheckpointSaver]:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from psycopg import AsyncConnection
     from psycopg.rows import dict_row
     from psycopg_pool import AsyncConnectionPool
 
@@ -34,7 +35,9 @@ async def open_postgres() -> AsyncGenerator[BaseCheckpointSaver]:
         conninfo=settings.database_url, kwargs=kwargs, open=False
     ) as pool:
         await pool.open()
-        saver = AsyncPostgresSaver(pool)
+        saver = AsyncPostgresSaver(
+            cast(AsyncConnectionPool[AsyncConnection[dict[str, Any]]], pool)
+        )
         await saver.setup()
         logger.debug("checkpointer=postgres")
         yield saver
