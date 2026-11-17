@@ -13,7 +13,9 @@ def test_health():
 
 def test_chat_ok(monkeypatch):
     # aask is imported into routes.chat; patch with an async stub so no LLM runs.
-    async def fake_aask(question: str) -> dict:
+    async def fake_aask(
+        question: str, thread_id: str | None = None, user_id: str | None = None
+    ) -> dict:
         return {
             "route": "sql",
             "answer": "42",
@@ -45,7 +47,9 @@ def test_chat_rejects_empty():
 
 
 def test_chat_stream_emits_sse(monkeypatch):
-    async def fake_stream(question: str):
+    async def fake_stream(
+        question: str, thread_id: str | None = None, user_id: str | None = None
+    ):
         yield {"kind": "step", "node": "classify", "state": {"route": "sql"}}
         yield {"kind": "result", "result": {"route": "sql", "answer": "42"}}
 

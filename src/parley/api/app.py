@@ -2,8 +2,8 @@ import asyncio
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from parley.api.routes.chat import router as chat_router
 from parley.api.routes.docs import router as docs_router
 from parley.config import settings, setup_logging
+from parley.graph import set_stateful_graph
+from parley.memory import open_checkpointer, open_store
 from parley.sql.catalog import get_catalog
 
 logger = logging.getLogger(__name__)
@@ -24,9 +26,19 @@ async def warm_catalog() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     task = asyncio.create_task(warm_catalog())
-    yield
+    app.state.store = None
+    async with AsyncExitStack() as stack:
+        try:
+            checkpointer = await stack.enter_async_context(open_checkpointer())
+            store = await stack.enter_async_context(open_store())
+            set_stateful_graph(checkpointer, store)
+            app.state.store = store
+            logger.info("conversation memory enabled")
+        except Exception:
+            logger.exception("memory setup failed; serving stateless")
+        yield
     task.cancel()
 
 

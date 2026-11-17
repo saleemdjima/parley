@@ -9,9 +9,11 @@ def ask(question: str) -> dict:
     return run(question)
 
 
-async def aask(question: str) -> dict:
+async def aask(
+    question: str, thread_id: str | None = None, user_id: str | None = None
+) -> dict:
     result: dict = {}
-    async for event in astream_run(question):
+    async for event in astream_run(question, thread_id, user_id):
         if event["kind"] == "result":
             result = event["result"]
     return result

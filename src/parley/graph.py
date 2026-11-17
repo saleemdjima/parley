@@ -1,14 +1,20 @@
+import asyncio
 import logging
 import time
+import uuid
 from collections.abc import AsyncIterator
-from typing import TypedDict
+from typing import Annotated, TypedDict
 
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.store.base import BaseStore
 
 from parley import llm
 from parley.domains.taxi import TAXI_METRICS
 from parley.engines import get_engine
+from parley.memory.conversations import record_turn
 from parley.metrics import QueryMetrics, track
 from parley.prompts import render_system_prompt
 from parley.sql.builder import build_query
@@ -18,6 +24,11 @@ from parley.sql.router import Route, route
 from parley.verify import judge
 
 logger = logging.getLogger(__name__)
+
+PERSONA = """You are a friendly, sharp data analyst. Don't just state the number: say what
+it means in plain language, add a short bit of context or a natural next step, and keep a
+warm, conversational tone. Be concise but never clipped. Always reply in the same language
+as the user's question."""
 
 RAG_PROMPT = """Answer the question using ONLY the documentation context below. If the
 answer is not in the context, say you don't know.
@@ -45,10 +56,48 @@ briefly and warmly, and gently point them toward something you can actually help
 
 SQL_ANSWER_PROMPT = """The user asked: "{question}"
 The query returned these rows: {rows}
-Answer in natural sentence using those numbers. Round sensibly (money to cents).
-State only what the rows support: do not assert a time period, location, or any other
-filter that is not reflected in the query. If there are several rows, summarize the key
-finding."""
+Explain the finding in natural, friendly language using those numbers. Round sensibly
+(money to cents). State only what the rows support: do not assert a time period, location,
+or any other filter that is not reflected in the query. If there are several rows,
+summarize the key finding."""
+
+CONTEXTUALIZE_PROMPT = """Rewrite the user's latest message into a single standalone
+question understandable without the conversation. Stay faithful; do not answer it. If it
+is already standalone, return it unchanged. Return only the question.
+
+Summary of earlier conversation:
+{summary}
+
+Recent turns:
+{history}
+
+Latest message: {question}
+Standalone question:"""
+
+MEMORY_EXTRACT_PROMPT = """From the exchange below, extract ONE durable fact worth
+remembering about this user for future conversations (a stable preference, context, or
+goal - not a one-off data value). If there is nothing worth remembering, reply exactly
+NONE.
+
+User: {question}
+Assistant: {answer}
+Fact:"""
+
+SUMMARY_PROMPT = """Update the running summary of a conversation with the new turns below.
+Keep it concise (a few sentences), capturing facts, entities and the user's intent that
+later turns may refer back to.
+
+Existing summary:
+{summary}
+
+New turns:
+{turns}
+
+Updated summary:"""
+
+RECENT_TURNS = 4
+COMPACT_AFTER = 8
+RECALL_LIMIT = 10
 
 
 def current_system_prompt() -> str:
@@ -63,8 +112,18 @@ def current_system_prompt() -> str:
     return render_system_prompt(coverage, total_rows, examples)
 
 
+def reduce_history(existing: list | None, update: object) -> list:
+    # Turns normally append; {"replace": [...]} overwrites, which is how compact_node
+    # trims old turns (a plain append-only reducer could never shrink the list).
+    if isinstance(update, dict) and "replace" in update:
+        return list(update["replace"])
+    rhs = update if isinstance(update, list) else []
+    return (existing or []) + rhs
+
+
 class AgentState(TypedDict, total=False):
     question: str
+    original_question: str
     route: str
     reasoning: str
     sql: str
@@ -73,6 +132,63 @@ class AgentState(TypedDict, total=False):
     context: str
     answer: str
     verified: bool
+    memories: str
+    summary: str
+    history: Annotated[list, reduce_history]
+
+
+def config_value(config: RunnableConfig | None, key: str) -> str:
+    if not config:
+        return ""
+    return (config.get("configurable") or {}).get(key) or ""
+
+
+def format_history(history: list, limit: int = RECENT_TURNS) -> str:
+    lines: list[str] = []
+    for turn in history[-limit:]:
+        lines.append(f"User: {turn.get('question', '')}")
+        lines.append(f"Assistant: {turn.get('answer', '')}")
+    return "\n".join(lines)
+
+
+def preamble(state: AgentState) -> str:
+    parts = [PERSONA, current_system_prompt()]
+    memories = state.get("memories")
+    if memories:
+        parts.append(f"What you remember about this user:\n{memories}")
+    return "\n\n".join(parts)
+
+
+def contextualize_node(state: AgentState) -> AgentState:
+    # Rewrite a follow-up into a standalone question so the rest of the graph is unchanged.
+    original = state["question"]
+    history = state.get("history") or []
+    summary = state.get("summary") or ""
+    if not history and not summary:
+        return {"original_question": original}
+    standalone = llm.classify(
+        CONTEXTUALIZE_PROMPT.format(
+            summary=summary or "(none)",
+            history=format_history(history),
+            question=original,
+        )
+    ).strip()
+    logger.debug("contextualize_node %r -> %r", original, standalone)
+    return {"original_question": original, "question": standalone or original}
+
+
+async def recall_node(
+    state: AgentState, config: RunnableConfig, *, store: BaseStore | None = None
+) -> AgentState:
+    user_id = config_value(config, "user_id")
+    if store is None or not user_id:
+        return {}
+    items = await store.asearch((user_id, "memories"), limit=RECALL_LIMIT)
+    if not items:
+        return {}
+    memories = "\n".join(f"- {item.value.get('text', '')}" for item in items)
+    logger.debug("recall_node user=%s memories=%d", user_id, len(items))
+    return {"memories": memories}
 
 
 def classify_node(state: AgentState) -> AgentState:
@@ -94,7 +210,7 @@ def sql_node(state: AgentState) -> AgentState:
     # Turn the rows into a sentence for the pure-sql route.
     if state.get("route") != Route.hybrid.value:
         result["answer"] = llm.answer(
-            current_system_prompt()
+            preamble(state)
             + "\n\n"
             + SQL_ANSWER_PROMPT.format(question=state["question"], rows=rows)
         )
@@ -108,7 +224,7 @@ def rag_node(state: AgentState) -> AgentState:
     docs = retrieve(state["question"])
     context = format_context(docs)
     answer = llm.answer(
-        current_system_prompt()
+        preamble(state)
         + "\n\n"
         + RAG_PROMPT.format(context=context, question=state["question"])
     )
@@ -118,7 +234,7 @@ def rag_node(state: AgentState) -> AgentState:
 
 def merge_node(state: AgentState) -> AgentState:
     answer = llm.answer(
-        current_system_prompt()
+        preamble(state)
         + "\n\n"
         + MERGE_PROMPT.format(
             question=state["question"],
@@ -132,7 +248,7 @@ def merge_node(state: AgentState) -> AgentState:
 
 def clarify_node(state: AgentState) -> AgentState:
     prompt = (
-        current_system_prompt()
+        preamble(state)
         + "\n\n"
         + CLARIFY_PROMPT.format(question=state["question"])
     )
@@ -171,6 +287,42 @@ def verify_node(state: AgentState) -> AgentState:
     return {"answer": verdict.answer, "verified": verdict.supported}
 
 
+async def remember_node(
+    state: AgentState, config: RunnableConfig, *, store: BaseStore | None = None
+) -> AgentState:
+    question = state.get("original_question") or state.get("question", "")
+    answer = state.get("answer", "")
+    turn = {"question": question, "answer": answer}
+    user_id = config_value(config, "user_id")
+    thread_id = config_value(config, "thread_id")
+    if store is not None and user_id:
+        if thread_id:
+            await record_turn(store, user_id, thread_id, question)
+        fact = llm.answer(
+            MEMORY_EXTRACT_PROMPT.format(question=question, answer=answer)
+        ).strip()
+        if fact and fact.upper() != "NONE":
+            await store.aput((user_id, "memories"), str(uuid.uuid4()), {"text": fact})
+            logger.debug("remember_node stored fact user=%s", user_id)
+    return {"history": [turn]}
+
+
+def compact_node(state: AgentState) -> AgentState:
+    history = state.get("history") or []
+    if len(history) <= COMPACT_AFTER:
+        return {}
+    kept = history[-RECENT_TURNS:]
+    older = history[:-RECENT_TURNS]
+    summary = llm.answer(
+        SUMMARY_PROMPT.format(
+            summary=state.get("summary") or "(none)",
+            turns=format_history(older, limit=len(older)),
+        )
+    ).strip()
+    logger.debug("compact_node summarized=%d kept=%d", len(older), len(kept))
+    return {"summary": summary, "history": {"replace": kept}}
+
+
 def route_from_classify(state: AgentState) -> list[str] | str:
     # Hybrid fans out to sql and rag in parallel (one LangGraph superstep)
     decision = state["route"]
@@ -187,16 +339,25 @@ def after_data(state: AgentState) -> str:
     return "merge" if state["route"] == Route.hybrid.value else "verify"
 
 
-def build_graph() -> CompiledStateGraph:
+def build_graph(
+    checkpointer: BaseCheckpointSaver | None = None,
+    store: BaseStore | None = None,
+) -> CompiledStateGraph:
     graph = StateGraph(AgentState)
+    graph.add_node("contextualize", contextualize_node)
+    graph.add_node("recall", recall_node)
     graph.add_node("classify", classify_node)
     graph.add_node("sql", sql_node)
     graph.add_node("rag", rag_node)
     graph.add_node("merge", merge_node)
     graph.add_node("clarify", clarify_node)
     graph.add_node("verify", verify_node)
+    graph.add_node("remember", remember_node)
+    graph.add_node("compact", compact_node)
 
-    graph.add_edge(START, "classify")
+    graph.add_edge(START, "contextualize")
+    graph.add_edge("contextualize", "recall")
+    graph.add_edge("recall", "classify")
     graph.add_conditional_edges(
         "classify", route_from_classify, ["sql", "rag", "clarify"]
     )
@@ -204,11 +365,37 @@ def build_graph() -> CompiledStateGraph:
     graph.add_conditional_edges("rag", after_data, {"merge": "merge", "verify": "verify"})
     graph.add_edge("merge", "verify")
     graph.add_edge("clarify", "verify")
-    graph.add_edge("verify", END)
-    return graph.compile()
+    graph.add_edge("verify", "remember")
+    graph.add_edge("remember", "compact")
+    graph.add_edge("compact", END)
+    return graph.compile(checkpointer=checkpointer, store=store)
 
 
+# The default graph is stateless (CLI/tests). The API lifespan recompiles a second graph
+# with a live checkpointer + store and registers it here, so threaded calls persist.
 agent_graph = build_graph()
+stateful_graph: CompiledStateGraph | None = None
+
+
+def set_stateful_graph(checkpointer: BaseCheckpointSaver, store: BaseStore) -> None:
+    global stateful_graph
+    stateful_graph = build_graph(checkpointer, store)
+
+
+def graph_for(thread_id: str | None) -> CompiledStateGraph:
+    if thread_id and stateful_graph is not None:
+        return stateful_graph
+    return agent_graph
+
+
+async def get_history(thread_id: str, user_id: str | None = None) -> list:
+    if stateful_graph is None:
+        return []
+    config: RunnableConfig = {
+        "configurable": {"thread_id": thread_id, "user_id": user_id or ""}
+    }
+    snapshot = await stateful_graph.aget_state(config)
+    return snapshot.values.get("history", []) if snapshot else []
 
 
 SAFE_ERROR_ANSWER = "Sorry, I could not answer that right now. Please try rephrasing."
@@ -255,29 +442,34 @@ def error_result(usage: dict) -> dict:
 
 
 def run(question: str) -> dict:
-    # Sync entry point (CLI).
-    with track() as metrics:
-        try:
-            state = agent_graph.invoke({"question": question})
-        except Exception:
-            logger.exception("run failed question=%r", question)
-            return error_result(metrics_dict(metrics))
-    usage = metrics_dict(metrics)
-    logger.debug(
-        "run question=%r route=%s metrics=%s", question, state.get("route"), usage
-    )
-    return build_result(state, usage)
+    # Sync entry point (CLI). Drives the async path so the async memory nodes work.
+    async def collect() -> dict:
+        result: dict = {}
+        async for event in astream_run(question):
+            if event["kind"] == "result":
+                result = event["result"]
+        return result
+
+    return asyncio.run(collect())
 
 
-async def astream_run(question: str) -> AsyncIterator[dict]:
+async def astream_run(
+    question: str, thread_id: str | None = None, user_id: str | None = None
+) -> AsyncIterator[dict]:
     # Yields a "step" event per node as it finishes, then one "result" event.
+    # thread_id (with a checkpointer registered) persists state across turns;
+    # user_id scopes long-term memory in the store.
     merged: dict = {}
     failed = False
+    graph = graph_for(thread_id)
+    config: RunnableConfig | None = None
+    if thread_id and graph is stateful_graph:
+        config = {"configurable": {"thread_id": thread_id, "user_id": user_id or ""}}
     with track() as metrics:
         start = time.monotonic()
         try:
-            async for update in agent_graph.astream(
-                {"question": question}, stream_mode="updates"
+            async for update in graph.astream(
+                {"question": question}, config=config, stream_mode="updates"
             ):
                 for node, delta in update.items():
                     if metrics.first_response_s is None:
