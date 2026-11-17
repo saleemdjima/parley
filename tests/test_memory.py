@@ -3,7 +3,12 @@ from unittest.mock import patch
 
 from langgraph.store.memory import InMemoryStore
 
-from parley.graph import contextualize_node, recall_node, reduce_history
+from parley.graph import (
+    ReplaceHistory,
+    contextualize_node,
+    recall_node,
+    reduce_history,
+)
 from parley.memory.conversations import list_conversations, record_turn, title_from
 
 
@@ -12,7 +17,7 @@ def test_reduce_history_appends() -> None:
 
 
 def test_reduce_history_replace_trims() -> None:
-    out = reduce_history([{"q": 1}, {"q": 2}, {"q": 3}], {"replace": [{"q": 3}]})
+    out = reduce_history([{"q": 1}, {"q": 2}, {"q": 3}], ReplaceHistory([{"q": 3}]))
     assert out == [{"q": 3}]
 
 

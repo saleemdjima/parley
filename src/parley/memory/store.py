@@ -1,6 +1,7 @@
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any, cast
 
 from langgraph.store.base import BaseStore
 
@@ -24,6 +25,7 @@ async def open_store() -> AsyncGenerator[BaseStore]:
 @asynccontextmanager
 async def open_postgres_store() -> AsyncGenerator[BaseStore]:
     from langgraph.store.postgres.aio import AsyncPostgresStore
+    from psycopg import AsyncConnection
     from psycopg.rows import dict_row
     from psycopg_pool import AsyncConnectionPool
 
@@ -32,7 +34,9 @@ async def open_postgres_store() -> AsyncGenerator[BaseStore]:
         conninfo=settings.database_url, kwargs=kwargs, open=False
     ) as pool:
         await pool.open()
-        store = AsyncPostgresStore(pool)
+        store = AsyncPostgresStore(
+            cast(AsyncConnectionPool[AsyncConnection[dict[str, Any]]], pool)
+        )
         await store.setup()
         logger.debug("store=postgres")
         yield store

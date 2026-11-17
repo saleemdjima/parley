@@ -112,13 +112,15 @@ def current_system_prompt() -> str:
     return render_system_prompt(coverage, total_rows, examples)
 
 
-def reduce_history(existing: list | None, update: object) -> list:
-    # Turns normally append; {"replace": [...]} overwrites, which is how compact_node
-    # trims old turns (a plain append-only reducer could never shrink the list).
-    if isinstance(update, dict) and "replace" in update:
-        return list(update["replace"])
-    rhs = update if isinstance(update, list) else []
-    return (existing or []) + rhs
+class ReplaceHistory(list):
+    # Marks a history update that replaces rather than appends (compaction trim).
+    pass
+
+
+def reduce_history(existing: list | None, update: list) -> list:
+    if isinstance(update, ReplaceHistory):
+        return list(update)
+    return (existing or []) + update
 
 
 class AgentState(TypedDict, total=False):
@@ -315,7 +317,7 @@ def compact_node(state: AgentState) -> AgentState:
         )
     ).strip()
     logger.debug("compact_node summarized=%d kept=%d", len(older), len(kept))
-    return {"summary": summary, "history": {"replace": kept}}
+    return {"summary": summary, "history": ReplaceHistory(kept)}
 
 
 def route_from_classify(state: AgentState) -> list[str] | str:
@@ -366,8 +368,6 @@ def build_graph(
     return graph.compile(checkpointer=checkpointer, store=store)
 
 
-# The default graph is stateless (CLI/tests). The API lifespan recompiles a second graph
-# with a live checkpointer + store and registers it here, so threaded calls persist.
 agent_graph = build_graph()
 stateful_graph: CompiledStateGraph | None = None
 
@@ -437,7 +437,6 @@ def error_result(usage: dict) -> dict:
 
 
 def run(question: str) -> dict:
-    # Sync entry point (CLI). Drives the async path so the async memory nodes work.
     async def collect() -> dict:
         result: dict = {}
         async for event in astream_run(question):
@@ -451,9 +450,6 @@ def run(question: str) -> dict:
 async def astream_run(
     question: str, thread_id: str | None = None, user_id: str | None = None
 ) -> AsyncIterator[dict]:
-    # Yields a "step" event per node as it finishes, then one "result" event.
-    # thread_id (with a checkpointer registered) persists state across turns;
-    # user_id scopes long-term memory in the store.
     merged: dict = {}
     failed = False
     graph = graph_for(thread_id)
