@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from langgraph.store.base import BaseStore
 
@@ -21,7 +21,7 @@ def title_from(question: str) -> str:
 async def record_turn(
     store: BaseStore, user_id: str, thread_id: str, question: str
 ) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     existing = await store.aget(namespace(user_id), thread_id)
     if existing is None:
         value = {"title": title_from(question), "created_at": now}

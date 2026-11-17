@@ -160,7 +160,6 @@ def preamble(state: AgentState) -> str:
 
 
 def contextualize_node(state: AgentState) -> AgentState:
-    # Rewrite a follow-up into a standalone question so the rest of the graph is unchanged.
     original = state["question"]
     history = state.get("history") or []
     summary = state.get("summary") or ""
@@ -247,11 +246,7 @@ def merge_node(state: AgentState) -> AgentState:
 
 
 def clarify_node(state: AgentState) -> AgentState:
-    prompt = (
-        preamble(state)
-        + "\n\n"
-        + CLARIFY_PROMPT.format(question=state["question"])
-    )
+    prompt = preamble(state) + "\n\n" + CLARIFY_PROMPT.format(question=state["question"])
     answer = llm.answer(prompt)
     logger.debug("clarify_node")
     return {"answer": answer}
