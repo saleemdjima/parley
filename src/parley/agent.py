@@ -10,10 +10,13 @@ def ask(question: str) -> dict:
 
 
 async def aask(
-    question: str, thread_id: str | None = None, user_id: str | None = None
+    question: str,
+    thread_id: str | None = None,
+    user_id: str | None = None,
+    language: str | None = None,
 ) -> dict:
     result: dict = {}
-    async for event in astream_run(question, thread_id, user_id):
+    async for event in astream_run(question, thread_id, user_id, language):
         if event["kind"] == "result":
             result = event["result"]
     return result

@@ -1,6 +1,55 @@
 from unittest.mock import MagicMock, patch
 
-from parley.graph import clarify_node, sql_node
+from parley.graph import (
+    clarify_node,
+    contextualize_node,
+    language_directive,
+    sql_node,
+)
+
+
+def test_contextualize_node_rewrites_in_selected_language() -> None:
+    # The standalone rewrite must stay in the selected language, not drift to English.
+    with patch("parley.graph.llm.classify", return_value="Et en février ?") as mock:
+        out = contextualize_node(
+            {
+                "question": "et février ?",
+                "language": "fr",
+                "history": [{"question": "janvier ?", "answer": "100"}],
+            }
+        )
+
+    assert out["question"] == "Et en février ?"
+    prompt = mock.call_args[0][0]
+    assert "French" in prompt
+
+
+def test_language_directive_defaults_to_selection() -> None:
+    # A selected language becomes the default, so greetings don't fall back to English.
+    directive = language_directive("fr")
+    assert "French" in directive
+    assert "default" in directive
+
+    assert "English" in language_directive("en")
+
+
+def test_language_directive_without_selection_mirrors_question() -> None:
+    assert "same language" in language_directive(None)
+    assert "same language" in language_directive("")
+
+
+def test_clarify_node_honors_selected_language() -> None:
+    catalog = MagicMock()
+    catalog.coverage.return_value = "2024"
+    catalog.total_rows = 1000
+    with (
+        patch("parley.graph.get_catalog", return_value=catalog),
+        patch("parley.graph.llm.answer", return_value="Bonjour !") as mock_answer,
+    ):
+        clarify_node({"question": "D'o", "language": "fr"})
+
+    prompt = mock_answer.call_args[0][0]
+    assert "French" in prompt
 
 
 def test_clarify_node_uses_grounded_system_prompt() -> None:

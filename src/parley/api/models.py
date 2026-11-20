@@ -9,6 +9,10 @@ class ChatRequest(BaseModel):
         None, description="Conversation id; omit to start a new one."
     )
     user_id: str | None = Field(None, description="Scopes long-term memory to a user.")
+    language: str | None = Field(
+        None, description="UI-selected reply language ('fr' or 'en'); the default when "
+        "the question's language can't be told.",
+    )
 
 
 class UserCreate(BaseModel):
