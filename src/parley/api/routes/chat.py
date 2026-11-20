@@ -52,13 +52,16 @@ async def chat(request: ChatRequest) -> ChatResponse:
     thread_id = request.thread_id or uuid.uuid4().hex
     logger.debug("chat message=%r thread=%s", question, thread_id)
     # aask() is the async agent path (the hybrid route runs its branches concurrently).
-    result = await aask(question, thread_id, request.user_id)
+    result = await aask(question, thread_id, request.user_id, request.language)
     return ChatResponse(thread_id=thread_id, **result)
 
 
 @router.get("/chat/stream")
 async def chat_stream(
-    message: str, thread_id: str | None = None, user_id: str | None = None
+    message: str,
+    thread_id: str | None = None,
+    user_id: str | None = None,
+    language: str | None = None,
 ) -> StreamingResponse:
     try:
         question = validate_question(message)
@@ -68,7 +71,7 @@ async def chat_stream(
     logger.debug("chat_stream message=%r thread=%s", question, resolved_thread)
 
     async def events() -> AsyncIterator[str]:
-        async for event in astream_run(question, resolved_thread, user_id):
+        async for event in astream_run(question, resolved_thread, user_id, language):
             if event["kind"] == "result":
                 event["result"]["thread_id"] = resolved_thread
             payload = json.dumps(event, default=str)

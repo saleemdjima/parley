@@ -27,8 +27,9 @@ logger = logging.getLogger(__name__)
 
 PERSONA = """You are a friendly, sharp data analyst. Don't just state the number: say what
 it means in plain language, add a short bit of context or a natural next step, and keep a
-warm, conversational tone. Be concise but never clipped. Always reply in the same language
-as the user's question."""
+warm, conversational tone. Be concise but never clipped."""
+
+LANGUAGE_NAMES = {"en": "English", "fr": "French"}
 
 RAG_PROMPT = """Answer the question using ONLY the documentation context below. If the
 answer is not in the context, say you don't know.
@@ -64,6 +65,7 @@ summarize the key finding."""
 CONTEXTUALIZE_PROMPT = """Rewrite the user's latest message into a single standalone
 question understandable without the conversation. Stay faithful; do not answer it. If it
 is already standalone, return it unchanged. Return only the question.
+{language_line}
 
 Summary of earlier conversation:
 {summary}
@@ -126,6 +128,7 @@ def reduce_history(existing: list | None, update: list) -> list:
 class AgentState(TypedDict, total=False):
     question: str
     original_question: str
+    language: str
     route: str
     reasoning: str
     sql: str
@@ -153,8 +156,38 @@ def format_history(history: list, limit: int = RECENT_TURNS) -> str:
     return "\n".join(lines)
 
 
+def language_name(language: str | None) -> str | None:
+    return LANGUAGE_NAMES.get((language or "").strip().lower())
+
+
+def language_directive(language: str | None) -> str:
+    # The UI-selected language is the default, so greetings or messages too short to
+    # place still answer in it. A message clearly in another language still wins, which
+    # lets a French user drop into English mid-thread.
+    name = language_name(language)
+    if not name:
+        return "Reply in the same language as the user's question."
+    return (
+        f"Reply in {name} by default, including for greetings or messages too short to "
+        f"place. Only when the user's latest message is clearly and unambiguously "
+        f"written in another language, reply in that language instead."
+    )
+
+
+def rewrite_language_line(language: str | None) -> str:
+    # Keep the rewritten standalone question in the same language it will be answered in,
+    # so it never silently translates the thread into English before the answer nodes.
+    name = language_name(language)
+    if not name:
+        return "Write the standalone question in the same language as the latest message."
+    return (
+        f"Write the standalone question in {name}, unless the latest message is clearly "
+        f"in another language, in which case keep that language."
+    )
+
+
 def preamble(state: AgentState) -> str:
-    parts = [PERSONA, current_system_prompt()]
+    parts = [PERSONA, language_directive(state.get("language")), current_system_prompt()]
     memories = state.get("memories")
     if memories:
         parts.append(f"What you remember about this user:\n{memories}")
@@ -169,6 +202,7 @@ def contextualize_node(state: AgentState) -> AgentState:
         return {"original_question": original}
     standalone = llm.classify(
         CONTEXTUALIZE_PROMPT.format(
+            language_line=rewrite_language_line(state.get("language")),
             summary=summary or "(none)",
             history=format_history(history),
             question=original,
@@ -448,7 +482,10 @@ def run(question: str) -> dict:
 
 
 async def astream_run(
-    question: str, thread_id: str | None = None, user_id: str | None = None
+    question: str,
+    thread_id: str | None = None,
+    user_id: str | None = None,
+    language: str | None = None,
 ) -> AsyncIterator[dict]:
     merged: dict = {}
     failed = False
@@ -456,11 +493,14 @@ async def astream_run(
     config: RunnableConfig | None = None
     if thread_id and graph is stateful_graph:
         config = {"configurable": {"thread_id": thread_id, "user_id": user_id or ""}}
+    inputs: dict = {"question": question}
+    if language:
+        inputs["language"] = language
     with track() as metrics:
         start = time.monotonic()
         try:
             async for update in graph.astream(
-                {"question": question}, config=config, stream_mode="updates"
+                inputs, config=config, stream_mode="updates"
             ):
                 for node, delta in update.items():
                     if metrics.first_response_s is None:
