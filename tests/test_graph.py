@@ -34,7 +34,6 @@ def test_language_directive_defaults_to_selection() -> None:
 
 
 def test_language_directive_without_selection_mirrors_question() -> None:
-    # No selection (e.g. the legacy /chat path) keeps the old mirror-the-question behavior.
     assert "same language" in language_directive(None)
     assert "same language" in language_directive("")
 
